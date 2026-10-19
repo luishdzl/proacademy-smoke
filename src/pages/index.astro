@@ -1,0 +1,96 @@
+---
+export const prerender = false;
+
+import { neon } from "@neondatabase/serverless";
+
+type Check = { label: string; ok: boolean; detail: string };
+
+// 1) Environment variables expected by the real project.
+const envVars = [
+  "DATABASE_URL",
+  "DATABASE_URL_UNPOOLED",
+  "SESSION_SECRET",
+  "ADMIN_PASSWORD_HASH",
+  "SMTP_USER",
+  "SMTP_PASS",
+  "UPLOAD_DIR",
+];
+const envChecks: Check[] = envVars.map((name) => ({
+  label: name,
+  ok: Boolean(process.env[name]),
+  detail: process.env[name] ? "definida" : "FALTA",
+}));
+
+// 2) External database connectivity (Neon serverless driver over HTTPS).
+let dbCheck: Check = { label: "Postgres: SELECT now()", ok: false, detail: "" };
+const startedAt = Date.now();
+try {
+  const url = process.env.DATABASE_URL;
+  if (!url) throw new Error("DATABASE_URL no está definida");
+  const sql = neon(url);
+  const rows = await sql`select now() as now, current_database() as db`;
+  dbCheck = {
+    label: "Postgres: SELECT now()",
+    ok: true,
+    detail: `${rows[0].now} (db: ${rows[0].db}, ${Date.now() - startedAt} ms)`,
+  };
+} catch (error) {
+  dbCheck = {
+    label: "Postgres: SELECT now()",
+    ok: false,
+    detail: error instanceof Error ? error.message : String(error),
+  };
+}
+
+const checks = [...envChecks, dbCheck];
+const allOk = checks.every((c) => c.ok);
+const now = new Date().toISOString();
+---
+
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Proacademy · Smoke test</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem; max-width: 52rem; }
+      h1 { margin-bottom: 0.25rem; }
+      .status { font-size: 4rem; margin: 0; }
+      .ok { color: #15803d; }
+      .fail { color: #b91c1c; }
+      table { border-collapse: collapse; width: 100%; margin-top: 1.5rem; }
+      th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid #e5e7eb; }
+      code { background: #f3f4f6; padding: 0.1rem 0.35rem; border-radius: 4px; }
+      .pill { font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <h1>Proacademy · Smoke test</h1>
+    <p>Astro SSR + <code>@astrojs/node</code> + Postgres externo (Neon), en Neubox.</p>
+
+    <p class="status {allOk ? "ok" : "fail"}">
+      {allOk ? "OK" : "FALLA"}
+    </p>
+    <p>Renderizado en el servidor: <code>{now}</code> · Node <code>{process.version}</code> · PID <code>{process.pid}</code></p>
+
+    <table>
+      <thead>
+        <tr><th>Comprobación</th><th>Estado</th><th>Detalle</th></tr>
+      </thead>
+      <tbody>
+        {checks.map((c) => (
+          <tr>
+            <td><code>{c.label}</code></td>
+            <td class="pill {c.ok ? "ok" : "fail"}">{c.ok ? "OK" : "FALLA"}</td>
+            <td>{c.detail}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+
+    <p style="margin-top:1.5rem; color:#6b7280; font-size:0.875rem;">
+      Si todo sale OK, el mismo stack que usa el proyecto real funciona en este hosting.
+    </p>
+  </body>
+</html>
